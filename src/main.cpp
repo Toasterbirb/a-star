@@ -72,13 +72,20 @@ int main(void)
 			}
 		}
 
+		// progress timers
 		pathfinder_tick_timer.tick(timestep.deltatime());
 		new_map_timer.tick(timestep.deltatime());
+
+		// update the game state (path finding)
 		if (pathfinder_tick_timer.done())
 		{
+			// progress the path finding
 			game.update();
+
+			// reset the pathfinding timer
 			pathfinder_tick_timer.reset();
 
+			// if the path was found, start waiting for a map reset
 			if (game.is_done() && !waiting_for_new_map)
 			{
 				new_map_timer.reset();
@@ -86,6 +93,7 @@ int main(void)
 			}
 		}
 
+		// if we found a route, wait a little bit before generating a new map
 		if (waiting_for_new_map && new_map_timer.done())
 		{
 			game.reset();
@@ -99,6 +107,7 @@ int main(void)
 		// Draw stuff here //
 		/////////////////////
 
+		// draw entities that should be rendered into the backbuffer
 		renderer.draw_entities(camera, window.size());
 
 		{

@@ -1,4 +1,3 @@
-#include <entt.hpp>
 #include <format>
 
 #include "Entity.hpp"
@@ -24,6 +23,7 @@ game::game()
 	// generate a random map
 	generate_map();
 
+	// shader sprite used for rendering the 2D tiles
 	birb::shader_sprite sprite(s_unexplored);
 
 	// create a grid of tiles that'll be rendered in screenspace
@@ -37,39 +37,53 @@ game::game()
 	{
 		for (u8 j = 0; j < map_size; ++j)
 		{
-			birb::entity tile_entity = scene.create_entity("Tile", birb::component::transform);
+			// create a new entity for each tile with a transform component
+			birb::entity tile_entity = scene.create_entity(birb::component::transform);
+
+			// set the position and scale
 			tile_entity.get_component<birb::transform>().position.x = i * tile_pos_offset + 512;
 			tile_entity.get_component<birb::transform>().position.y = top_pos - (j * tile_pos_offset + tile_pos_offset);
-			tile_entity.get_component<birb::transform>().local_scale.x = tile_size;
-			tile_entity.get_component<birb::transform>().local_scale.y = tile_size;
+			tile_entity.get_component<birb::transform>().local_scale = { tile_size, tile_size, 0 };
 
+			// add the shader sprite as a component to the tile entity
 			tile_entity.add_component(sprite);
 
+			// create a new tile and set its position (scaled coords), coordinates and state
 			tile t;
 			t.position = birb::vec2<i16>(i * world_scale, j * world_scale);
 			t.coordinates = birb::vec2<i16>(i, j);
 			t.state = static_cast<tile_state>(walls[j][i]);
 
+			// add the tile to the entity as a component
 			tile_entity.add_component(t);
+
+			// get a pointer to the tile component and store it to the tile array
 			tiles[j][i] = &tile_entity.get_component<tile>();
 		}
 	}
 
+	// construct a font manager and load a font in two sizes with it
 	birb::font_manager font_manager;
 	birb::font mononoki_28 = font_manager.load_font("assets/mononoki-Regular.ttf", 28);
 	birb::font mononoki_14 = font_manager.load_font("assets/mononoki-Regular.ttf", 14);
 
+	// height offset for text
+	// this makes setting positions a bit easier, since the (0,0) point is
+	// at the bottom left corner
 	size_t text_height_offset{0};
 
 	// create the g_cost texts
 	for (i16 i = 0; i < walls.size(); ++i)
 	{
-		birb::entity text_entity = scene.create_entity("Text (" + std::to_string(i) + ")");
+		// create the text entity
+		birb::entity text_entity = scene.create_entity();
 
+		// construct a text component and add it to the text entity as a component
 		birb::text row("000", mononoki_28, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x1F1F28);
 		text_entity.add_component(row);
 		text_height_offset += tile_pos_offset;
 
+		// get a pointer to the text component and store it
 		weight_text_rows.at(i) = &text_entity.get_component<birb::text>();
 	}
 
@@ -77,12 +91,15 @@ game::game()
 	text_height_offset = 0;
 	for (i16 i = 0; i < walls.size(); ++i)
 	{
-		birb::entity text_entity = scene.create_entity("Text2 (" + std::to_string(i) + ")");
+		// create the text entity
+		birb::entity text_entity = scene.create_entity();
 
+		// construct a text component and add it to the text entity as a component
 		birb::text row("000 000 ", mononoki_14, birb::vec3<f32>(484, 1030 - text_height_offset, 0), 0x16161D);
 		text_entity.add_component(row);
 		text_height_offset += tile_pos_offset;
 
+		// get a pointer to the text component and store it
 		f_and_h_cost_text_rows.at(i) = &text_entity.get_component<birb::text>();
 	}
 
@@ -98,12 +115,14 @@ void game::generate_map()
 	for (auto& map_row : walls)
 		map_row.fill(1);
 
-	// choose a random starting point
+	// choose a random starting point and change the tile state accordingly
 	start_location = birb::vec2<i16>(rng.range(1, map_size - 1), rng.range(1, map_size - 1));
 	walls[start_location.y][start_location.x] = static_cast<u8>(tile_state::start);
 
 	// wander around randomly for a set amount of tiles depending on the map size
 	const size_t wandering_count = (map_size * map_size);
+
+	// start wandering from the start location
 	birb::vec2<i16> current_location = start_location;
 
 	for (size_t i = 0; i < wandering_count; ++i)
@@ -119,6 +138,8 @@ void game::generate_map()
 		if (new_location.y < 0 || new_location.y >= map_size)
 			continue;
 
+		// make sure that we don't end up at the starting location
+		// the search for the path would be a bit boring in that case
 		if (new_location == start_location)
 			continue;
 
@@ -135,6 +156,7 @@ void game::generate_map()
 std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
 {
 	// a lambda that checks if a tile is an explorable neighbor or not
+	// a not-explorable tile would be a tile out-of-bounds or an obstacle
 	const auto is_explorable_tile = [&](const birb::vec2<i16> tile_coords) -> bool
 	{
 		// check if the tile is within the bounds of the area we are exploring
@@ -153,29 +175,20 @@ std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
 
 	std::vector<tile*> neighbors;
 
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y)))
-		neighbors.emplace_back(tiles[tile_to_check.y][tile_to_check.x - 1]);
+	// loop through a 3x3 grid around the tile we are checking
+	for (i8 i = -1; i < 2; ++i)
+	{
+		for (i8 j = -1; j < 2; ++j)
+		{
+			// skip the current tile (that we are checking)
+			if (!i && !j) continue;
 
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y)))
-		neighbors.emplace_back(tiles[tile_to_check.y][tile_to_check.x + 1]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x, tile_to_check.y - 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x, tile_to_check.y + 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y + 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x + 1]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y + 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x - 1]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y - 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x + 1]);
-
-	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y - 1)))
-		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x - 1]);
+			// check if the tile is explorable (i.e. in the bounds and not an obstacle)
+			// if it is, add it to the neighbor list
+			if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - i, tile_to_check.y - j)))
+				neighbors.emplace_back(tiles[tile_to_check.y - j][tile_to_check.x - i]);
+		}
+	}
 
 	return neighbors;
 }
@@ -205,6 +218,8 @@ void game::update()
 	// loop through the open_set
 	for (tile* const t : open_set)
 	{
+		// check if the current tile has a lower f_cost than the currently
+		// lowest f_cost found so far
 		if (t->f_cost() < current_tile_ptr->f_cost())
 			current_tile_ptr = t;
 	}
@@ -233,20 +248,26 @@ void game::update()
 		// also mark the start tile as part of the route
 		tiles[start_location.y][start_location.x]->state = tile_state::route;
 
-		// color the tiles
+		// find all entities that have a tile and shader_sprite component on them
 		const auto tile_view = scene.registry.view<tile, birb::shader_sprite>();
 
+		// loop through the entities
 		for (const auto tile_entity : tile_view)
 		{
+			// get the tile and shader_sprite components from the entity
 			const tile& t = tile_view.get<tile>(tile_entity);
 			birb::shader_sprite& s = tile_view.get<birb::shader_sprite>(tile_entity);
 
+			// if the tile is not part of the route, skip it
 			if (t.state != tile_state::route)
 				continue;
 
+			// set the shader of the tile to the route shader
 			s.set_shader(s_route);
 		}
 
+		// don't do any further processing since we have found
+		// and visualized the route to the goal
 		return;
 	}
 
@@ -275,13 +296,16 @@ void game::update()
 		const tile* const current_tile_ptr = tiles[current_tile.y][current_tile.x];
 		const f32 new_g_cost = birb::vec_distance(t->position, current_tile_ptr->position) + current_tile_ptr->g_cost;
 
+		// update the neighbor predecessors in cases where this path would be
+		// better than the old one
 		if (new_g_cost < t->g_cost || !open_set.contains(t))
 		{
 			t->predecessor = tiles[current_tile.y][current_tile.x];
 			t->g_cost = new_g_cost;
 
-			if (!open_set.contains(t))
-				open_set.insert(t);
+			// insert the tile into the open set
+			// it shouldn't matter if its already there since it can be in the set only once
+			open_set.insert(t);
 		}
 	}
 
@@ -339,6 +363,7 @@ void game::update()
 		}
 	}
 
+	// update the text entities
 	update_weight_texts();
 }
 
@@ -410,6 +435,7 @@ void game::reset()
 	for (std::string& row : f_and_h_cost_text_row_strings)
 		row = fh_text;
 
+	// update text entities
 	update_weight_texts();
 }
 

@@ -62,10 +62,10 @@ private:
 	// used when calculating g and h costs
 	static constexpr i16 world_scale = 10;
 
-	std::array<std::array<tile*, map_size>, map_size> tiles;
+	std::array<std::array<tile*, map_size>, map_size> tiles = {nullptr};
 
 	// text rows for displaying the g-cost
-	std::array<birb::text*, map_size> weight_text_rows;
+	std::array<birb::text*, map_size> weight_text_rows = {nullptr};
 	std::array<std::string, map_size> weight_text_row_strings;
 
 	// text rows for displaying the f- and h-costs
