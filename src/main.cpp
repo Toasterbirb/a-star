@@ -5,6 +5,7 @@
 #include "Renderer.hpp"
 #include "RendererOverlay.hpp"
 #include "Scene.hpp"
+#include "Timer.hpp"
 #include "Timestep.hpp"
 #include "Window.hpp"
 
@@ -32,6 +33,8 @@ int main(void)
 
 	// create the game state
 	game game;
+
+	birb::timer pathfinder_tick_timer(0.1);
 
 	// tell the renderer which scene to render
 	renderer.set_scene(game.scene);
@@ -64,7 +67,12 @@ int main(void)
 			}
 		}
 
-		game.update();
+		pathfinder_tick_timer.tick(timestep.deltatime());
+		if (pathfinder_tick_timer.done())
+		{
+			game.update();
+			pathfinder_tick_timer.reset();
+		}
 
 		// clear the backbuffer
 		window.clear();

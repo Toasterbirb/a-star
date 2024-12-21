@@ -1,12 +1,12 @@
 #include <entt.hpp>
+#include <format>
+#include <iostream>
 
 #include "Entity.hpp"
-#include "Transform.hpp"
-#include "Vector.hpp"
-
 #include "Font.hpp"
 #include "FontManager.hpp"
 #include "Game.hpp"
+#include "Math.hpp"
 #include "Model.hpp"
 #include "Shader.hpp"
 #include "ShaderCollection.hpp"
@@ -14,14 +14,16 @@
 #include "ShaderSprite.hpp"
 #include "Text.hpp"
 #include "Tile.hpp"
+#include "Transform.hpp"
 #include "Transformer.hpp"
+#include "Vector.hpp"
 
 game::game()
 {
 	birb::shader_sprite sprite(white);
 
 	// create a grid of tiles that'll be rendered in screenspace
-	constexpr u8 grid_size = 16;
+	constexpr u8 grid_size = walls.size();
 	constexpr u8 grid_dimensions = 64;
 	const u32 top_pos = 1080;
 	for (u8 i = 0; i < grid_size; ++i)
@@ -29,15 +31,16 @@ game::game()
 		for (u8 j = 0; j < grid_size; ++j)
 		{
 			birb::entity tile_entity = scene.create_entity("Tile", birb::component::transform);
-			tile_entity.get_component<birb::transform>().position.x = i * 34 + 1024;
-			tile_entity.get_component<birb::transform>().position.y = top_pos - (j * 34 + 128);
-			tile_entity.get_component<birb::transform>().local_scale.x = 30;
-			tile_entity.get_component<birb::transform>().local_scale.y = 30;
+			tile_entity.get_component<birb::transform>().position.x = i * 64 + 512;
+			tile_entity.get_component<birb::transform>().position.y = top_pos - (j * 64 + 64);
+			tile_entity.get_component<birb::transform>().local_scale.x = 60;
+			tile_entity.get_component<birb::transform>().local_scale.y = 60;
 
 			tile_entity.add_component(sprite);
-			tiles[j][i] = &tile_entity.get_component<tile>();
 
 			tile t;
+			t.position = birb::vec2<i16>(i * world_scale, j * world_scale);
+			t.coordinates = birb::vec2<i16>(i, j);
 			t.state = static_cast<tile_state>(walls[j][i]);
 
 			switch (t.state)
@@ -47,71 +50,232 @@ game::game()
 					break;
 
 				case tile_state::start:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(green);
-					t.distance_to_start = 0;
-					t.distance_to_end = 0;
+					tile_entity.get_component<birb::shader_sprite>().set_shader(blue);
+					t.g_cost = 0;
+					t.h_cost = 0;
 					start_location = { i, j };
 					break;
 
 				case tile_state::end:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(red);
-					t.distance_to_start = 0;
-					t.distance_to_end = 0;
+					tile_entity.get_component<birb::shader_sprite>().set_shader(blue);
+					t.g_cost = 0;
+					t.h_cost = 0;
 					end_location = { i, j };
 					break;
 
 				default:
+					tile_entity.get_component<birb::shader_sprite>().set_shader(white);
 					break;
 			}
 			tile_entity.add_component(t);
+			tiles[j][i] = &tile_entity.get_component<tile>();
 		}
 	}
 
-	// birb::font_manager font_manager;
-	// birb::font mononoki_32 = font_manager.load_font("assets/mononoki-Regular.ttf", 32);
-	// birb::text numbers("000", mononoki_32, {512, 1024, 0});
+	birb::font_manager font_manager;
+	birb::font mononoki_32 = font_manager.load_font("assets/mononoki-Regular.ttf", 28);
 
-	// std::string text = "";
-	// for (u16 i = 0; i < 25 * 3; ++i)
-	// 	text += '0';
+	// generate a default text string full of zeroes
+	std::string text = "";
+	for (i16 i = 0; i < walls.size(); ++i)
+		text += "000 ";
 
-	// for (u16 i = 0; i < 25; ++i)
-	// {
-	// 	birb::entity text_entity = scene.create_entity("Text");
+	size_t text_height_offset{0};
 
-	// 	for (size_t i = 0; i < text.size(); ++i)
-	// 		text[i] = i % 10 + '0';
+	for (i16 i = 0; i < walls.size(); ++i)
+	{
+		birb::entity text_entity = scene.create_entity("Text (" + std::to_string(i) + ")");
 
-	// 	numbers.set_text(text);
-	// 	numbers.position.y -= 50;
-	// 	text_entity.add_component(numbers);
-	// }
+		birb::text row("000", mononoki_32, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x000000);
+		row.set_text(text);
+		text_entity.add_component(row);
+		text_height_offset += 64;
 
-	// add the tiles around the starting tile as the first tiles in the
-	tileset.insert(tiles[start_location.y][start_location.x - 1]);
-	tileset.insert(tiles[start_location.y][start_location.x + 1]);
-	tileset.insert(tiles[start_location.y - 1][start_location.x]);
-	tileset.insert(tiles[start_location.y + 1][start_location.x]);
-	tileset.insert(tiles[start_location.y + 1][start_location.x + 1]);
-	tileset.insert(tiles[start_location.y + 1][start_location.x - 1]);
-	tileset.insert(tiles[start_location.y - 1][start_location.x + 1]);
-	tileset.insert(tiles[start_location.y - 1][start_location.x - 1]);
+		weight_text_rows.at(i) = &text_entity.get_component<birb::text>();
+		weight_text_row_strings.at(i) = text;
+	}
+
+	// start from the starting tile
+	open_set.insert(tiles[start_location.y][start_location.x]);
+}
+
+std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
+{
+	// a lambda that checks if a tile is an explorable neighbor or not
+	const auto is_explorable_tile = [&](const birb::vec2<i16> tile_coords) -> bool
+	{
+		// check if the tile is within the bounds of the area we are exploring
+		if (tile_coords.x < 0 || tile_coords.y < 0)
+			return false;
+
+		if (tile_coords.x >= walls.size() || tile_coords.y >= walls.size())
+			return false;
+
+		// check if the tile is an obstacle
+		if (tiles[tile_coords.y][tile_coords.x]->state == tile_state::obstacle)
+			return false;
+
+		return true;
+	};
+
+	std::vector<tile*> neighbors;
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y)))
+		neighbors.emplace_back(tiles[tile_to_check.y][tile_to_check.x - 1]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y)))
+		neighbors.emplace_back(tiles[tile_to_check.y][tile_to_check.x + 1]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x, tile_to_check.y - 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x, tile_to_check.y + 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y + 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x + 1]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y + 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y + 1][tile_to_check.x - 1]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x + 1, tile_to_check.y - 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x + 1]);
+
+	if (is_explorable_tile(birb::vec2<i16>(tile_to_check.x - 1, tile_to_check.y - 1)))
+		neighbors.emplace_back(tiles[tile_to_check.y - 1][tile_to_check.x - 1]);
+
+	return neighbors;
 }
 
 void game::update()
 {
-	// const auto view = scene.registry.view<birb::text>();
-	// birb::random rng;
-	// rng.seed(counter++);
+	// treat the update as a while loop
+	// its called on every frame from the main loop at main.cpp
 
-	// for (const auto entity : view)
-	// {
-	// 	birb::text& t = view.get<birb::text>(entity);
+	// pick a tile from the open_set that has the lowest f_cost
+	// and set it to be the new current tile
 
-	// 	std::string str = t.get_text();
-	// 	for (size_t i = 0; i < str.size(); ++i)
-	// 		str[i] = rng.next() % 10 + '0';
+	// the the current_tile_ptr to the first tile in the open_set
+	birb::ensure(!open_set.empty());
+	tile* current_tile_ptr = *open_set.begin();
 
-	// 	t.set_text(str);
-	// }
+	// loop through the open_set
+	for (tile* const t : open_set)
+	{
+		if (t->f_cost() < current_tile_ptr->f_cost())
+			current_tile_ptr = t;
+	}
+
+	// get the coordinates of the new current tile
+	const birb::vec2<i16> current_tile = current_tile_ptr->coordinates;
+
+	// if we have reached the goal, update the tile states to mark the route
+	// from start to finish
+	if (current_tile == end_location)
+	{
+		if (road_found)
+			return;
+
+		road_found = true;
+
+		// start from the end tile and work towards the start tile
+		tile* t = tiles[end_location.y][end_location.x];
+		while (t != tiles[start_location.y][start_location.x])
+		{
+			t->state = tile_state::route;
+			t = t->predecessor;
+			birb::ensure(t != nullptr, "tile doesn't have a predecessor");
+		}
+
+		// color the tiles
+		const auto tile_view = scene.registry.view<tile, birb::shader_sprite>();
+
+		for (const auto tile_entity : tile_view)
+		{
+			const tile& t = tile_view.get<tile>(tile_entity);
+			birb::shader_sprite& s = tile_view.get<birb::shader_sprite>(tile_entity);
+
+			if (t.state != tile_state::route)
+				continue;
+
+			s.set_shader(blue);
+		}
+
+		return;
+	}
+
+	// add the current tile to the closed set and remove it from the open set
+	open_set.erase(current_tile_ptr);
+	closed_set.insert(current_tile_ptr);
+
+	// get neighbors of the current tile
+	const std::vector<tile*> current_tile_neighbors = get_tile_neighbors(current_tile);
+	birb::ensure(!current_tile_neighbors.empty(), "coudln't find any neighbors for the current tile");
+
+	// update the g_costs and h_costs of the neighbors and set
+	// their predecessor to the current tile if needed
+	//
+	// also add the neighbors to the open set if they aren't there already
+	// (unless they are in the closed set)
+	for (tile* const t : current_tile_neighbors)
+	{
+		// skip the neighbor if its in the closed_set
+		if (closed_set.contains(t))
+			continue;
+
+		// calculate an h_cost for the tile
+		t->h_cost = birb::vec_distance(t->position, tiles[end_location.y][end_location.x]->position);
+
+		const tile* const current_tile_ptr = tiles[current_tile.y][current_tile.x];
+		const f32 new_g_cost = birb::vec_distance(t->position, current_tile_ptr->position) + current_tile_ptr->g_cost;
+
+		if (new_g_cost < t->g_cost || !open_set.contains(t))
+		{
+			t->predecessor = tiles[current_tile.y][current_tile.x];
+			t->g_cost = new_g_cost;
+
+			if (!open_set.contains(t))
+				open_set.insert(t);
+		}
+	}
+
+	// set tile colors and weight texts based on if they are in the sets or not
+	// this could probably be optimized further to avoid unnecessary
+	// shader switching
+	const auto tile_view = scene.registry.view<tile, birb::shader_sprite>();
+
+	for (const auto tile_entity : tile_view)
+	{
+		birb::shader_sprite& s = tile_view.get<birb::shader_sprite>(tile_entity);
+		tile* const t = &tile_view.get<tile>(tile_entity);
+
+		// check what sets the tile is in (it shouldn't be in all of them)
+		const bool is_in_open = open_set.contains(t);
+		const bool is_in_closed = closed_set.contains(t);
+
+		// if the tile is not yet in either set, skip it
+		if (!is_in_open && !is_in_closed)
+			continue;
+
+		// set the color of the tile according to its set
+		is_in_open ? s.set_shader(green) : s.set_shader(red);
+
+		// update the weight text //
+
+		// find the correct row
+		std::string& text_row = weight_text_row_strings.at(t->coordinates.y);
+
+		// calculate the number position in the row
+		const size_t num_pos = t->coordinates.x * 4;
+
+		// update the value
+		const std::string weight_str = std::format("{:03}", t->f_cost());
+
+		for (u8 i = 0; i < weight_str.size(); ++i)
+			text_row.at(num_pos + i) = weight_str.at(i);
+	}
+
+	// update the weight texts
+	for (size_t i = 0; i < weight_text_rows.size(); ++i)
+		weight_text_rows.at(i)->set_text(weight_text_row_strings.at(i));
 }
