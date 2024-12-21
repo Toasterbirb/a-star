@@ -4,7 +4,6 @@
 #include "Profiling.hpp"
 #include "Renderer.hpp"
 #include "RendererOverlay.hpp"
-#include "Scene.hpp"
 #include "Timer.hpp"
 #include "Timestep.hpp"
 #include "Window.hpp"

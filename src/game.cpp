@@ -1,14 +1,11 @@
-#include <algorithm>
 #include <entt.hpp>
 #include <format>
-#include <iostream>
 
 #include "Entity.hpp"
 #include "Font.hpp"
 #include "FontManager.hpp"
 #include "Game.hpp"
 #include "Math.hpp"
-#include "Model.hpp"
 #include "Shader.hpp"
 #include "ShaderCollection.hpp"
 #include "ShaderRef.hpp"
@@ -27,7 +24,7 @@ game::game()
 	// generate a random map
 	generate_map();
 
-	birb::shader_sprite sprite(white);
+	birb::shader_sprite sprite(s_unexplored);
 
 	// create a grid of tiles that'll be rendered in screenspace
 	constexpr u8 grid_dimensions = 64;
@@ -59,26 +56,34 @@ game::game()
 	}
 
 	birb::font_manager font_manager;
-	birb::font mononoki_32 = font_manager.load_font("assets/mononoki-Regular.ttf", 28);
-
-	// generate a default text string full of zeroes
-	std::string text = "";
-	for (i16 i = 0; i < walls.size(); ++i)
-		text += "000 ";
+	birb::font mononoki_28 = font_manager.load_font("assets/mononoki-Regular.ttf", 28);
+	birb::font mononoki_14 = font_manager.load_font("assets/mononoki-Regular.ttf", 14);
 
 	size_t text_height_offset{0};
 
+	// create the g_cost texts
 	for (i16 i = 0; i < walls.size(); ++i)
 	{
 		birb::entity text_entity = scene.create_entity("Text (" + std::to_string(i) + ")");
 
-		birb::text row("000", mononoki_32, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x000000);
-		row.set_text(text);
+		birb::text row("000", mononoki_28, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x1F1F28);
 		text_entity.add_component(row);
 		text_height_offset += tile_pos_offset;
 
 		weight_text_rows.at(i) = &text_entity.get_component<birb::text>();
-		weight_text_row_strings.at(i) = text;
+	}
+
+	// create the f_cost/h_cost texts
+	text_height_offset = 0;
+	for (i16 i = 0; i < walls.size(); ++i)
+	{
+		birb::entity text_entity = scene.create_entity("Text2 (" + std::to_string(i) + ")");
+
+		birb::text row("000 000 ", mononoki_14, birb::vec3<f32>(484, 1030 - text_height_offset, 0), 0x16161D);
+		text_entity.add_component(row);
+		text_height_offset += tile_pos_offset;
+
+		f_and_h_cost_text_rows.at(i) = &text_entity.get_component<birb::text>();
 	}
 
 	// reset the map and game_state to generate a new level
@@ -180,6 +185,9 @@ void game::update_weight_texts()
 	// update the weight texts
 	for (size_t i = 0; i < weight_text_rows.size(); ++i)
 		weight_text_rows.at(i)->set_text(weight_text_row_strings.at(i));
+
+	for (size_t i = 0; i < f_and_h_cost_text_rows.size(); ++i)
+		f_and_h_cost_text_rows.at(i)->set_text(f_and_h_cost_text_row_strings.at(i));
 }
 
 void game::update()
@@ -236,7 +244,7 @@ void game::update()
 			if (t.state != tile_state::route)
 				continue;
 
-			s.set_shader(blue);
+			s.set_shader(s_route);
 		}
 
 		return;
@@ -296,21 +304,39 @@ void game::update()
 			continue;
 
 		// set the color of the tile according to its set
-		is_in_open ? s.set_shader(green) : s.set_shader(red);
+		is_in_open ? s.set_shader(s_open) : s.set_shader(s_closed);
 
 		// update the weight text //
 
-		// find the correct row
-		std::string& text_row = weight_text_row_strings.at(t->coordinates.y);
+		// g_cost
+		{
+			// find the correct row
+			std::string& text_row = weight_text_row_strings.at(t->coordinates.y);
 
-		// calculate the number position in the row
-		const size_t num_pos = t->coordinates.x * 4;
+			// calculate the number position in the row
+			const size_t num_pos = t->coordinates.x * 4;
 
-		// update the value
-		const std::string weight_str = std::format("{:03}", t->f_cost());
+			// update the value
+			const std::string weight_str = std::format("{:03}", t->f_cost());
 
-		for (u8 i = 0; i < weight_str.size(); ++i)
-			text_row.at(num_pos + i) = weight_str.at(i);
+			for (u8 i = 0; i < weight_str.size(); ++i)
+				text_row.at(num_pos + i) = weight_str.at(i);
+		}
+
+		// h_cost and f_cost
+		{
+			// find the correct row
+			std::string& text_row = f_and_h_cost_text_row_strings.at(t->coordinates.y);
+
+			// calculate the number position in the row
+			const size_t num_pos = t->coordinates.x * 8;
+
+			// update the value
+			const std::string weight_str = std::format("{:03} {:03} ", t->g_cost, t->h_cost);
+
+			for (u8 i = 0; i < weight_str.size(); ++i)
+				text_row.at(num_pos + i) = weight_str.at(i);
+		}
 	}
 
 	update_weight_texts();
@@ -345,36 +371,44 @@ void game::reset()
 		switch (t.state)
 		{
 			case tile_state::obstacle:
-				s.set_shader(black);
+				s.set_shader(s_obstacle);
 				break;
 
 			case tile_state::start:
-				s.set_shader(blue);
+				s.set_shader(s_route);
 				t.g_cost = 0;
 				t.h_cost = 0;
 				break;
 
 			case tile_state::end:
-				s.set_shader(blue);
+				s.set_shader(s_route);
 				t.g_cost = 0;
 				t.h_cost = 0;
 				break;
 
 			default:
-				s.set_shader(white);
+				s.set_shader(s_unexplored);
 				break;
 		}
 	}
 
 	// reset weight texts
 
-	// generate a default text string full of zeroes
-	std::string text = "";
+	// generate a default text strings full of whitespace
+	std::string g_text = "";
+	std::string fh_text = "";
+
 	for (i16 i = 0; i < walls.size(); ++i)
-		text += "    ";
+	{
+		g_text += "    ";
+		fh_text += "        ";
+	}
 
 	for (std::string& row : weight_text_row_strings)
-		row = text;
+		row = g_text;
+
+	for (std::string& row : f_and_h_cost_text_row_strings)
+		row = fh_text;
 
 	update_weight_texts();
 }

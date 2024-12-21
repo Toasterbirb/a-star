@@ -51,20 +51,26 @@ private:
 							{0,1,0,0,0,0,0,1,0,0,0,0,0,0,0,0},
 	};
 
+	// shaders used for coloring the tiles
+	birb::shader_ref s_unexplored = birb::shader_collection::register_shader("texture", "unexplored");
+	birb::shader_ref s_obstacle = birb::shader_collection::register_shader("texture", "obstacle");
+	birb::shader_ref s_open = birb::shader_collection::register_shader("texture", "open");
+	birb::shader_ref s_closed = birb::shader_collection::register_shader("texture", "closed");
+	birb::shader_ref s_route = birb::shader_collection::register_shader("texture", "route");
+
 	// the multiplier for tile positions
 	// used when calculating g and h costs
 	static constexpr i16 world_scale = 10;
 
-	birb::shader_ref white = birb::shader_collection::register_shader("texture", "white");
-	birb::shader_ref black = birb::shader_collection::register_shader("texture", "black");
-	birb::shader_ref green = birb::shader_collection::register_shader("texture", "green");
-	birb::shader_ref red = birb::shader_collection::register_shader("texture", "red");
-	birb::shader_ref blue = birb::shader_collection::register_shader("texture", "blue");
-
 	std::array<std::array<tile*, map_size>, map_size> tiles;
 
+	// text rows for displaying the g-cost
 	std::array<birb::text*, map_size> weight_text_rows;
 	std::array<std::string, map_size> weight_text_row_strings;
+
+	// text rows for displaying the f- and h-costs
+	std::array<birb::text*, map_size> f_and_h_cost_text_rows;
+	std::array<std::string, map_size> f_and_h_cost_text_row_strings;
 
 	std::unordered_set<tile*> open_set;
 	std::unordered_set<tile*> closed_set;
