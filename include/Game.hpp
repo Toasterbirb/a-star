@@ -62,8 +62,10 @@ private:
 	birb::shader_ref blue = birb::shader_collection::register_shader("texture", "blue");
 
 	std::array<std::array<tile*, map_size>, map_size> tiles;
+
 	std::array<birb::text*, map_size> weight_text_rows;
 	std::array<std::string, map_size> weight_text_row_strings;
+
 	std::unordered_set<tile*> open_set;
 	std::unordered_set<tile*> closed_set;
 

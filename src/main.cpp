@@ -20,6 +20,9 @@ int main(void)
 	birb::window window("Playground", birb::vec2<int>(1280, 720));
 	window.init_imgui();
 
+	// match the window background color with the obstacle color
+	window.set_background_color(0x16161D);
+
 	// construct misc. things like the renderer, timestep, camera etc.
 	birb::timestep timestep;
 	birb::renderer renderer;

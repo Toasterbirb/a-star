@@ -31,16 +31,20 @@ game::game()
 
 	// create a grid of tiles that'll be rendered in screenspace
 	constexpr u8 grid_dimensions = 64;
-	const u32 top_pos = 1080;
+	constexpr u32 top_pos = 1080;
+
+	constexpr u8 tile_size = 64;
+	constexpr u8 tile_pos_offset = 64;
+
 	for (u8 i = 0; i < map_size; ++i)
 	{
 		for (u8 j = 0; j < map_size; ++j)
 		{
 			birb::entity tile_entity = scene.create_entity("Tile", birb::component::transform);
-			tile_entity.get_component<birb::transform>().position.x = i * 64 + 512;
-			tile_entity.get_component<birb::transform>().position.y = top_pos - (j * 64 + 64);
-			tile_entity.get_component<birb::transform>().local_scale.x = 60;
-			tile_entity.get_component<birb::transform>().local_scale.y = 60;
+			tile_entity.get_component<birb::transform>().position.x = i * tile_pos_offset + 512;
+			tile_entity.get_component<birb::transform>().position.y = top_pos - (j * tile_pos_offset + tile_pos_offset);
+			tile_entity.get_component<birb::transform>().local_scale.x = tile_size;
+			tile_entity.get_component<birb::transform>().local_scale.y = tile_size;
 
 			tile_entity.add_component(sprite);
 
@@ -71,7 +75,7 @@ game::game()
 		birb::text row("000", mononoki_32, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x000000);
 		row.set_text(text);
 		text_entity.add_component(row);
-		text_height_offset += 64;
+		text_height_offset += tile_pos_offset;
 
 		weight_text_rows.at(i) = &text_entity.get_component<birb::text>();
 		weight_text_row_strings.at(i) = text;
@@ -94,7 +98,7 @@ void game::generate_map()
 	walls[start_location.y][start_location.x] = static_cast<u8>(tile_state::start);
 
 	// wander around randomly for a set amount of tiles depending on the map size
-	const size_t wandering_count = map_size * map_size;
+	const size_t wandering_count = (map_size * map_size);
 	birb::vec2<i16> current_location = start_location;
 
 	for (size_t i = 0; i < wandering_count; ++i)
@@ -367,7 +371,7 @@ void game::reset()
 	// generate a default text string full of zeroes
 	std::string text = "";
 	for (i16 i = 0; i < walls.size(); ++i)
-		text += "000 ";
+		text += "    ";
 
 	for (std::string& row : weight_text_row_strings)
 		row = text;
