@@ -23,11 +23,16 @@ public:
 	birb::scene scene;
 
 	void update();
+	void reset();
+	bool is_done() const;
 
 private:
+	void generate_map();
 	std::vector<tile*> get_tile_neighbors(const birb::vec2<i16> tile_to_check);
+	void update_weight_texts();
 
-	static constexpr std::array<std::array<u8, 16>, 16> walls = {
+	static constexpr u8 map_size = 16;
+	std::array<std::array<u8, map_size>, map_size> walls = {
 		std::array<u8,16>	{0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0},
 							{0,0,0,0,0,0,1,0,0,0,3,0,0,0,0,0},
 							{0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0},
@@ -56,9 +61,9 @@ private:
 	birb::shader_ref red = birb::shader_collection::register_shader("texture", "red");
 	birb::shader_ref blue = birb::shader_collection::register_shader("texture", "blue");
 
-	std::array<std::array<tile*, walls.at(0).size()>, walls.size()> tiles;
-	std::array<birb::text*, walls.size()> weight_text_rows;
-	std::array<std::string, walls.size()> weight_text_row_strings;
+	std::array<std::array<tile*, map_size>, map_size> tiles;
+	std::array<birb::text*, map_size> weight_text_rows;
+	std::array<std::string, map_size> weight_text_row_strings;
 	std::unordered_set<tile*> open_set;
 	std::unordered_set<tile*> closed_set;
 

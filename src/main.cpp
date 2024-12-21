@@ -36,6 +36,9 @@ int main(void)
 
 	birb::timer pathfinder_tick_timer(0.1);
 
+	birb::timer new_map_timer(1.0);
+	bool waiting_for_new_map{false};
+
 	// tell the renderer which scene to render
 	renderer.set_scene(game.scene);
 
@@ -68,10 +71,23 @@ int main(void)
 		}
 
 		pathfinder_tick_timer.tick(timestep.deltatime());
+		new_map_timer.tick(timestep.deltatime());
 		if (pathfinder_tick_timer.done())
 		{
 			game.update();
 			pathfinder_tick_timer.reset();
+
+			if (game.is_done() && !waiting_for_new_map)
+			{
+				new_map_timer.reset();
+				waiting_for_new_map = true;
+			}
+		}
+
+		if (waiting_for_new_map && new_map_timer.done())
+		{
+			game.reset();
+			waiting_for_new_map = false;
 		}
 
 		// clear the backbuffer

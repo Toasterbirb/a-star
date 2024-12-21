@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <entt.hpp>
 #include <format>
 #include <iostream>
@@ -18,17 +19,22 @@
 #include "Transformer.hpp"
 #include "Vector.hpp"
 
+// randomness source
+static birb::random rng;
+
 game::game()
 {
+	// generate a random map
+	generate_map();
+
 	birb::shader_sprite sprite(white);
 
 	// create a grid of tiles that'll be rendered in screenspace
-	constexpr u8 grid_size = walls.size();
 	constexpr u8 grid_dimensions = 64;
 	const u32 top_pos = 1080;
-	for (u8 i = 0; i < grid_size; ++i)
+	for (u8 i = 0; i < map_size; ++i)
 	{
-		for (u8 j = 0; j < grid_size; ++j)
+		for (u8 j = 0; j < map_size; ++j)
 		{
 			birb::entity tile_entity = scene.create_entity("Tile", birb::component::transform);
 			tile_entity.get_component<birb::transform>().position.x = i * 64 + 512;
@@ -43,30 +49,6 @@ game::game()
 			t.coordinates = birb::vec2<i16>(i, j);
 			t.state = static_cast<tile_state>(walls[j][i]);
 
-			switch (t.state)
-			{
-				case tile_state::obstacle:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(black);
-					break;
-
-				case tile_state::start:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(blue);
-					t.g_cost = 0;
-					t.h_cost = 0;
-					start_location = { i, j };
-					break;
-
-				case tile_state::end:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(blue);
-					t.g_cost = 0;
-					t.h_cost = 0;
-					end_location = { i, j };
-					break;
-
-				default:
-					tile_entity.get_component<birb::shader_sprite>().set_shader(white);
-					break;
-			}
 			tile_entity.add_component(t);
 			tiles[j][i] = &tile_entity.get_component<tile>();
 		}
@@ -95,8 +77,50 @@ game::game()
 		weight_text_row_strings.at(i) = text;
 	}
 
-	// start from the starting tile
-	open_set.insert(tiles[start_location.y][start_location.x]);
+	// reset the map and game_state to generate a new level
+	reset();
+}
+
+void game::generate_map()
+{
+	// generate a randomize map with the drunk man algorithm
+
+	// first fill the map with obstacles
+	for (auto& map_row : walls)
+		map_row.fill(1);
+
+	// choose a random starting point
+	start_location = birb::vec2<i16>(rng.range(1, map_size - 1), rng.range(1, map_size - 1));
+	walls[start_location.y][start_location.x] = static_cast<u8>(tile_state::start);
+
+	// wander around randomly for a set amount of tiles depending on the map size
+	const size_t wandering_count = map_size * map_size;
+	birb::vec2<i16> current_location = start_location;
+
+	for (size_t i = 0; i < wandering_count; ++i)
+	{
+		const birb::vec2<i16> direction(rng.range(-1, 1), rng.range(-1, 1));
+
+		// make sure that the new location would be a legal one
+		const birb::vec2<i16> new_location = current_location + direction;
+
+		if (new_location.x < 0 || new_location.x >= map_size)
+			continue;
+
+		if (new_location.y < 0 || new_location.y >= map_size)
+			continue;
+
+		if (new_location == start_location)
+			continue;
+
+		// set the new location and update the walls
+		current_location = new_location;
+		walls[new_location.y][new_location.x] = static_cast<u8>(tile_state::unexplored);
+	}
+
+	// set the last tile we end up to be the goal
+	end_location = current_location;
+	walls[current_location.y][current_location.x] = static_cast<u8>(tile_state::end);
 }
 
 std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
@@ -147,6 +171,13 @@ std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
 	return neighbors;
 }
 
+void game::update_weight_texts()
+{
+	// update the weight texts
+	for (size_t i = 0; i < weight_text_rows.size(); ++i)
+		weight_text_rows.at(i)->set_text(weight_text_row_strings.at(i));
+}
+
 void game::update()
 {
 	// treat the update as a while loop
@@ -186,6 +217,9 @@ void game::update()
 			t = t->predecessor;
 			birb::ensure(t != nullptr, "tile doesn't have a predecessor");
 		}
+
+		// also mark the start tile as part of the route
+		tiles[start_location.y][start_location.x]->state = tile_state::route;
 
 		// color the tiles
 		const auto tile_view = scene.registry.view<tile, birb::shader_sprite>();
@@ -275,7 +309,73 @@ void game::update()
 			text_row.at(num_pos + i) = weight_str.at(i);
 	}
 
-	// update the weight texts
-	for (size_t i = 0; i < weight_text_rows.size(); ++i)
-		weight_text_rows.at(i)->set_text(weight_text_row_strings.at(i));
+	update_weight_texts();
+}
+
+void game::reset()
+{
+	road_found = false;
+
+	// generate a new map
+	generate_map();
+
+	// clear the sets
+	closed_set.clear();
+	open_set.clear();
+
+	// add the starting tile to the open_set
+	open_set.insert(tiles[start_location.y][start_location.x]);
+
+	// update tile states
+	for (u8 i = 0; i < map_size; ++i)
+		for (u8 j = 0; j < map_size; ++j)
+			tiles[j][i]->state = static_cast<tile_state>(walls[j][i]);
+
+	// give the tiles the correct initial shaders and weight values
+	const auto tile_view = scene.registry.view<tile, birb::shader_sprite>();
+	for (const auto tile_entity : tile_view)
+	{
+		tile& t = tile_view.get<tile>(tile_entity);
+		birb::shader_sprite& s = tile_view.get<birb::shader_sprite>(tile_entity);
+
+		switch (t.state)
+		{
+			case tile_state::obstacle:
+				s.set_shader(black);
+				break;
+
+			case tile_state::start:
+				s.set_shader(blue);
+				t.g_cost = 0;
+				t.h_cost = 0;
+				break;
+
+			case tile_state::end:
+				s.set_shader(blue);
+				t.g_cost = 0;
+				t.h_cost = 0;
+				break;
+
+			default:
+				s.set_shader(white);
+				break;
+		}
+	}
+
+	// reset weight texts
+
+	// generate a default text string full of zeroes
+	std::string text = "";
+	for (i16 i = 0; i < walls.size(); ++i)
+		text += "000 ";
+
+	for (std::string& row : weight_text_row_strings)
+		row = text;
+
+	update_weight_texts();
+}
+
+bool game::is_done() const
+{
+	return road_found;
 }
