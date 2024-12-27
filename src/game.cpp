@@ -33,6 +33,12 @@ game::game()
 	constexpr u8 tile_size = 64;
 	constexpr u8 tile_pos_offset = 64;
 
+	constexpr f32 cost_text_start_height = 1004;
+	constexpr f32 heuristic_text_start_height = 1030;
+
+	constexpr birb::color cost_text_color = 0x1F1F28;
+	constexpr birb::color heuristic_text_color = 0x16161D;
+
 	for (u8 i = 0; i < map_size; ++i)
 	{
 		for (u8 j = 0; j < map_size; ++j)
@@ -64,13 +70,9 @@ game::game()
 
 	// construct a font manager and load a font in two sizes with it
 	birb::font_manager font_manager;
-	birb::font mononoki_28 = font_manager.load_font("assets/mononoki-Regular.ttf", 28);
-	birb::font mononoki_14 = font_manager.load_font("assets/mononoki-Regular.ttf", 14);
-
-	// height offset for text
-	// this makes setting positions a bit easier, since the (0,0) point is
-	// at the bottom left corner
-	size_t text_height_offset{0};
+	static constexpr char font_path[] = "assets/mononoki-Regular.ttf";
+	const birb::font mononoki_28 = font_manager.load_font(font_path, 28);
+	const birb::font mononoki_14 = font_manager.load_font(font_path, 14);
 
 	// create the g_cost texts
 	for (i16 i = 0; i < walls.size(); ++i)
@@ -79,25 +81,22 @@ game::game()
 		birb::entity text_entity = scene.create_entity();
 
 		// construct a text component and add it to the text entity as a component
-		birb::text row("000", mononoki_28, birb::vec3<f32>(489, 1004 - text_height_offset, 0), 0x1F1F28);
+		birb::text row("000", mononoki_28, birb::vec3<f32>(489, cost_text_start_height - (tile_pos_offset * i), 0), cost_text_color);
 		text_entity.add_component(row);
-		text_height_offset += tile_pos_offset;
 
 		// get a pointer to the text component and store it
 		weight_text_rows.at(i) = &text_entity.get_component<birb::text>();
 	}
 
 	// create the f_cost/h_cost texts
-	text_height_offset = 0;
 	for (i16 i = 0; i < walls.size(); ++i)
 	{
 		// create the text entity
 		birb::entity text_entity = scene.create_entity();
 
 		// construct a text component and add it to the text entity as a component
-		birb::text row("000 000 ", mononoki_14, birb::vec3<f32>(484, 1030 - text_height_offset, 0), 0x16161D);
+		birb::text row("000 000 ", mononoki_14, birb::vec3<f32>(484, heuristic_text_start_height - (tile_pos_offset * i), 0), heuristic_text_color);
 		text_entity.add_component(row);
-		text_height_offset += tile_pos_offset;
 
 		// get a pointer to the text component and store it
 		f_and_h_cost_text_rows.at(i) = &text_entity.get_component<birb::text>();
@@ -113,7 +112,7 @@ void game::generate_map()
 
 	// first fill the map with obstacles
 	for (auto& map_row : walls)
-		map_row.fill(1);
+		map_row.fill(static_cast<u8>(tile_state::obstacle));
 
 	// choose a random starting point and change the tile state accordingly
 	start_location = birb::vec2<i16>(rng.range(1, map_size - 1), rng.range(1, map_size - 1));
@@ -181,6 +180,7 @@ std::vector<tile*> game::get_tile_neighbors(const birb::vec2<i16> tile_to_check)
 		for (i8 j = -1; j < 2; ++j)
 		{
 			// skip the current tile (that we are checking)
+			// we are at the current tile when i and j are 0
 			if (!i && !j) continue;
 
 			// check if the tile is explorable (i.e. in the bounds and not an obstacle)
