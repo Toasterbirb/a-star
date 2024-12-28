@@ -1,0 +1,3 @@
+[submodule "birb3d"]
+	path = birb3d
+	url = https://github.com/toasterbirb/birb3d
