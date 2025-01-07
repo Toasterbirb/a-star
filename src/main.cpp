@@ -48,6 +48,8 @@ int main(void)
 	renderer.debug.alloc_world(window);
 	renderer.debug.alloc_entity_editor(game.scene);
 
+	bool paused = false;
+
 	// the main loop that runs until the window wants to be closed
 	while (!window.should_close())
 	{
@@ -66,6 +68,10 @@ int main(void)
 					case (birb::input::keycode::escape):
 						window.quit();
 
+					case (birb::input::keycode::space):
+						paused = !paused;
+						break;
+
 					default:
 						break;
 				}
@@ -73,8 +79,11 @@ int main(void)
 		}
 
 		// progress timers
-		pathfinder_tick_timer.tick(timestep.deltatime());
-		new_map_timer.tick(timestep.deltatime());
+		if (!paused)
+		{
+			pathfinder_tick_timer.tick(timestep.deltatime());
+			new_map_timer.tick(timestep.deltatime());
+		}
 
 		// update the game state (path finding)
 		if (pathfinder_tick_timer.done())
